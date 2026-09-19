@@ -22,7 +22,7 @@ def evaluate(model_path: str, config_path: str):
         raise FileNotFoundError(f"Model checkpoint not found at: {model_path}")
 
     print(f"Loading model checkpoint from {model_path} onto {device}...")
-    loaded = torch.load(model_path, map_location=device)
+    loaded = torch.load(model_path, map_location=device, weights_only=True)
     if isinstance(loaded, dict):
         from training.train import create_model
         model = create_model(num_classes=cfg["model"]["num_classes"], pretrained=False)
@@ -48,7 +48,7 @@ def evaluate(model_path: str, config_path: str):
     all_targets = []
 
     with torch.no_grad():
-        for inputs, targets in val_loader:
+        for inputs, targets in eval_loader:
             inputs = inputs.to(device)
             outputs = model(inputs)
             _, preds = torch.max(outputs, 1)

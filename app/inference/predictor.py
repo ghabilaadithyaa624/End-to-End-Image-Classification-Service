@@ -31,7 +31,7 @@ class ImageClassifier:
         if os.path.exists(self.model_path):
             try:
                 logger.info(f"Loading custom model from {self.model_path} onto {self.device}")
-                loaded = torch.load(self.model_path, map_location=self.device)
+                loaded = torch.load(self.model_path, map_location=self.device, weights_only=True)
                 if isinstance(loaded, dict):
                     # ResNet18 binary classifier
                     model = models.resnet18(weights=None)
