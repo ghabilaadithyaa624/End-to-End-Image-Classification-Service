@@ -1,9 +1,14 @@
+from pathlib import Path
+import pytest
 import torch
 from training.dataset import create_dataloaders
 
 
 def test_dataset_loading():
     """Verify that dataset splits load correctly with classes and mappings."""
+    if not Path("data/raw/train/cat").exists() or not any(Path("data/raw/train/cat").glob("*.jpg")):
+        pytest.skip("Raw dataset not present in CI environment")
+
     train_loader, val_loader, test_loader = create_dataloaders(
         data_dir="data/raw",
         batch_size=4,
@@ -20,6 +25,9 @@ def test_dataset_loading():
 
 def test_image_shape():
     """Verify that a batch of images has shape [B, 3, 224, 224] and labels [B]."""
+    if not Path("data/raw/train/cat").exists() or not any(Path("data/raw/train/cat").glob("*.jpg")):
+        pytest.skip("Raw dataset not present in CI environment")
+
     batch_size = 4
     train_loader, _, _ = create_dataloaders(
         data_dir="data/raw",
@@ -33,3 +41,4 @@ def test_image_shape():
     assert isinstance(labels, torch.Tensor)
     assert images.shape == torch.Size([batch_size, 3, 224, 224])
     assert labels.shape == torch.Size([batch_size])
+

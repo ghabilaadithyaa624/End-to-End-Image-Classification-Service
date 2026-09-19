@@ -20,6 +20,7 @@ models/*.pt
 models/*.pth
 models/*.onnx
 !models/.gitkeep
+!models/image_classifier.pth
 
 # MLflow
 mlruns/
@@ -41,6 +42,7 @@ mlflow/*.db
 # OS
 .DS_Store
 Thumbs.db
+pinokio setup.txt
 
 # Python cache
 .pytest_cache/

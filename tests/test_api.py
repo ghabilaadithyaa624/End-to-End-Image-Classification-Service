@@ -45,13 +45,23 @@ def test_predict_with_invalid_file():
 
 
 def test_predict_with_real_image():
-    sample_cat = next(Path("data/raw/test/cat").glob("*.jpg"))
-    with open(sample_cat, "rb") as f:
-        img_bytes = f.read()
+    cat_files = list(Path("data/raw/test/cat").glob("*.jpg"))
+    if cat_files:
+        sample_cat = cat_files[0]
+        with open(sample_cat, "rb") as f:
+            img_bytes = f.read()
+        filename = sample_cat.name
+    else:
+        import io
+        from PIL import Image
+        buf = io.BytesIO()
+        Image.new("RGB", (224, 224), color=(255, 0, 0)).save(buf, format="JPEG")
+        img_bytes = buf.getvalue()
+        filename = "test_cat.jpg"
 
     response = client.post(
         "/predict",
-        files={"file": (sample_cat.name, img_bytes, "image/jpeg")},
+        files={"file": (filename, img_bytes, "image/jpeg")},
     )
     assert response.status_code == 200
     data = response.json()
