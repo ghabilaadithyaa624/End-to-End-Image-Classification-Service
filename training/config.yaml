@@ -7,12 +7,14 @@ project:
 model:
   architecture: "mobilenet_v3_small"
   pretrained: true
-  num_classes: 10
+  num_classes: 2
+  classes: ["cat", "dog"]
   save_path: "models/model.pt"
 
 data:
-  train_data_dir: "data/train"
-  val_data_dir: "data/val"
+  train_data_dir: "data/raw/train"
+  val_data_dir: "data/raw/val"
+  test_data_dir: "data/raw/test"
   image_size: [224, 224]
   batch_size: 32
   num_workers: 4
