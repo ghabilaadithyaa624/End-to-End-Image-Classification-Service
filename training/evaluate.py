@@ -17,9 +17,12 @@ def evaluate(model_path: str, config_path: str):
     model = torch.load(model_path, map_location=device)
     model.eval()
 
-    _, val_loader = get_dataloaders(
+    eval_dir = cfg["data"].get("test_data_dir") or cfg["data"]["val_data_dir"]
+    print(f"Evaluating model on dataset: {eval_dir}")
+
+    _, eval_loader = get_dataloaders(
         train_dir=cfg["data"]["train_data_dir"],
-        val_dir=cfg["data"]["val_data_dir"],
+        val_dir=eval_dir,
         batch_size=cfg["data"]["batch_size"],
         image_size=tuple(cfg["data"]["image_size"]),
         num_workers=0

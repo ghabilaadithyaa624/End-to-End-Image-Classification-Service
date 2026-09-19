@@ -48,11 +48,12 @@ class SyntheticImageDataset(Dataset):
 def get_dataloaders(
     train_dir: str,
     val_dir: str,
+    test_dir: str = None,
     batch_size: int = 32,
     image_size: Tuple[int, int] = (224, 224),
     num_workers: int = 2
-) -> Tuple[DataLoader, DataLoader]:
-    """Builds training and validation DataLoaders with fallback to synthetic data for testing."""
+):
+    """Builds training and validation (and optional test) DataLoaders with fallback to synthetic data."""
     if os.path.exists(train_dir) and os.path.exists(val_dir):
         train_dataset = datasets.ImageFolder(train_dir, transform=get_train_transforms(image_size))
         val_dataset = datasets.ImageFolder(val_dir, transform=get_val_transforms(image_size))
@@ -77,4 +78,39 @@ def get_dataloaders(
         pin_memory=torch.cuda.is_available()
     )
 
+    if test_dir is not None:
+        if os.path.exists(test_dir):
+            test_dataset = datasets.ImageFolder(test_dir, transform=get_val_transforms(image_size))
+        else:
+            test_dataset = SyntheticImageDataset(num_samples=32, image_size=image_size)
+        test_loader = DataLoader(
+            test_dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=num_workers,
+            pin_memory=torch.cuda.is_available()
+        )
+        return train_loader, val_loader, test_loader
+
     return train_loader, val_loader
+
+
+def get_test_dataloader(
+    test_dir: str,
+    batch_size: int = 32,
+    image_size: Tuple[int, int] = (224, 224),
+    num_workers: int = 2
+) -> DataLoader:
+    """Builds a dedicated DataLoader for the test evaluation set."""
+    if os.path.exists(test_dir):
+        test_dataset = datasets.ImageFolder(test_dir, transform=get_val_transforms(image_size))
+    else:
+        test_dataset = SyntheticImageDataset(num_samples=32, image_size=image_size)
+
+    return DataLoader(
+        test_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=torch.cuda.is_available()
+    )
