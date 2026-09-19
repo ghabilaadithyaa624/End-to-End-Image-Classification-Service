@@ -1,0 +1,14 @@
+PHASE 0  → Environment & project setup
+PHASE 1  → Dataset + PyTorch image classifier
+PHASE 2  → MLflow experiment tracking
+PHASE 3  → FastAPI inference service
+PHASE 4  → Testing
+PHASE 5  → Docker
+PHASE 6  → GitHub Actions CI
+PHASE 7  → Kubernetes with kind
+PHASE 8  → Prometheus + Grafana
+PHASE 9  → Model Registry + approval workflow
+PHASE 10 → CD: GitHub → Docker → Kubernetes
+PHASE 11 → AWS + Terraform
+PHASE 12 → Automatic retraining
+PHASE 13 → Data/model drift detection

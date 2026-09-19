@@ -7,8 +7,12 @@ __pycache__/
 venv/
 
 # ML datasets
-data/raw/
-data/processed/
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+data/test/*
+!data/test/.gitkeep
 
 # Model artifacts
 models/*.pt
