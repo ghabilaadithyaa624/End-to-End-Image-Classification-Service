@@ -297,22 +297,16 @@ def main():
                     f"(val accuracy: {val_accuracy:.4f})"
                 )
 
-        # Log final summary metric to MLflow
+        # Log the best model
         mlflow.log_metric(
             "best_val_accuracy",
             best_val_accuracy,
         )
 
-        # Log model artifact into MLflow
-        print("\nLogging trained model artifact to MLflow...")
-        try:
-            mlflow.pytorch.log_model(
-                model,
-                name="model",
-            )
-            print("Model artifact logged successfully to MLflow.")
-        except Exception as err:
-            print(f"Warning: Could not log model artifact to MLflow: {err}")
+        mlflow.log_artifact(
+            str(model_path),
+            artifact_path="model_files",
+        )
 
     print("\n" + "=" * 60)
     print("TRAINING COMPLETE (Tracked in MLflow)")

@@ -7,7 +7,7 @@ def test_mlflow_connection():
         "http://127.0.0.1:5000"
     )
 
-    experiment_name = "Image Classification"
+    experiment_name = "image-classification-mlops"
 
     experiment = mlflow.get_experiment_by_name(
         experiment_name
