@@ -269,7 +269,7 @@ def main():
             )
 
             print(
-                f"  ✓ Best model saved "
+                f"  --> Best model saved "
                 f"(val accuracy: {val_accuracy:.4f})"
             )
 
