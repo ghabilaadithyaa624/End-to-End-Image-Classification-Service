@@ -21,6 +21,7 @@ models/*.pth
 models/*.onnx
 !models/.gitkeep
 !models/image_classifier.pth
+!models/best_model.pth
 
 # MLflow
 mlruns/

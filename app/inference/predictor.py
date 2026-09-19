@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from typing import Dict, Any, Optional
 import torch
@@ -13,7 +14,7 @@ class ImagePredictor:
 
     def __init__(
         self,
-        model_path: str = "models/image_classifier.pth",
+        model_path: Optional[str] = None,
     ):
 
         self.device = torch.device(
@@ -22,7 +23,10 @@ class ImagePredictor:
             else "cpu"
         )
 
-        self.model_path = Path(model_path)
+        resolved_path = model_path or os.getenv(
+            "MODEL_PATH", "models/image_classifier.pth"
+        )
+        self.model_path = Path(resolved_path)
 
         if not self.model_path.exists():
             raise FileNotFoundError(
@@ -58,7 +62,7 @@ class ImagePredictor:
             "dog",
         ]
 
-        self.model_version = "1.0.0"
+        self.model_version = os.getenv("MODEL_VERSION", "1.0.0")
 
     def predict(
         self,
