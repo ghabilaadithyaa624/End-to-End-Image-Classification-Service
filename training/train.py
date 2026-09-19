@@ -310,7 +310,13 @@ def main():
                     f"(val accuracy: {val_accuracy:.4f})"
                 )
 
-        # Log the best model
+        # Governance tags
+        mlflow.set_tag("model_type", "resnet18")
+        mlflow.set_tag("task", "binary_image_classification")
+        mlflow.set_tag("framework", "pytorch")
+        mlflow.set_tag("validation_status", "candidate")
+
+        # Log the best model artifact
         mlflow.log_metric(
             "best_val_accuracy",
             best_val_accuracy,
@@ -320,6 +326,18 @@ def main():
             str(model_path),
             artifact_path="model_files",
         )
+
+        # Register model in MLflow Model Registry
+        print("Registering model in MLflow Model Registry...")
+        input_example = torch.randn(1, 3, 224, 224, device=device)
+        mlflow.pytorch.log_model(
+            model,
+            name="model",
+            registered_model_name="image-classifier",
+            input_example=input_example.cpu().numpy(),
+        )
+
+
 
     print("\n" + "=" * 60)
     print("TRAINING COMPLETE (Tracked in MLflow)")
