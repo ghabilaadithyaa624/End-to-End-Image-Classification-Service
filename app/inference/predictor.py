@@ -6,6 +6,22 @@ import torch
 from training.train import create_model
 
 
+MODEL_VERSION = os.getenv(
+    "MODEL_VERSION",
+    "1.0.0",
+)
+
+MODEL_PATH = os.getenv(
+    "MODEL_PATH",
+    "models/best_model.pth",
+)
+
+ENVIRONMENT = os.getenv(
+    "ENVIRONMENT",
+    "local",
+)
+
+
 class ImagePredictor:
     """
     Loads the trained image classification model
@@ -23,10 +39,12 @@ class ImagePredictor:
             else "cpu"
         )
 
-        resolved_path = model_path or os.getenv(
-            "MODEL_PATH", "models/image_classifier.pth"
-        )
+        resolved_path = model_path or os.getenv("MODEL_PATH", MODEL_PATH)
         self.model_path = Path(resolved_path)
+
+        # Fallback to image_classifier.pth if best_model.pth does not exist in local mode
+        if not self.model_path.exists() and Path("models/image_classifier.pth").exists():
+            self.model_path = Path("models/image_classifier.pth")
 
         if not self.model_path.exists():
             raise FileNotFoundError(
@@ -62,7 +80,8 @@ class ImagePredictor:
             "dog",
         ]
 
-        self.model_version = os.getenv("MODEL_VERSION", "1.0.0")
+        self.model_version = os.getenv("MODEL_VERSION", MODEL_VERSION)
+        self.environment = os.getenv("ENVIRONMENT", ENVIRONMENT)
 
     def predict(
         self,
