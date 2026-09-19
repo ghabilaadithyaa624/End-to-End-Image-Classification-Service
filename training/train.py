@@ -23,6 +23,7 @@ import yaml
 from torchvision import models
 
 from training.dataset import create_dataloaders
+from training.utils import get_git_commit
 
 
 def load_config(config_path: str = "training/config.yaml"):
@@ -233,13 +234,17 @@ def main():
         mlflow.log_params(
             {
                 "model": config["model"]["name"],
-                "epochs": epochs,
+                "epochs": config["training"]["epochs"],
                 "batch_size": config["data"]["batch_size"],
                 "learning_rate": config["training"]["learning_rate"],
                 "weight_decay": config["training"]["weight_decay"],
                 "image_size": config["data"]["image_size"],
                 "optimizer": "Adam",
                 "device": str(device),
+                "git_commit": get_git_commit(),
+                "train_samples": len(train_loader.dataset),
+                "val_samples": len(val_loader.dataset),
+                "test_samples": len(test_loader.dataset),
             }
         )
 
