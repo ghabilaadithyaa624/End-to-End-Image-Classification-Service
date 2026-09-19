@@ -5,7 +5,8 @@ metadata:
   name: image-classifier-config
 
 data:
-  MODEL_VERSION: "1.0.0"
+  MODEL_SOURCE: "local"
   MODEL_PATH: "/app/models/image_classifier.pth"
+  MODEL_URI: "models:/image-classifier@production"
+  MODEL_VERSION: "1.0.0"
   ENVIRONMENT: "kubernetes"
-

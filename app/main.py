@@ -4,6 +4,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from app.routes.health import router as health_router
 from app.routes.predict import router as predict_router
+from app.routes.model import router as model_router
 
 
 app = FastAPI(
@@ -23,6 +24,11 @@ app.include_router(
 app.include_router(
     predict_router
 )
+
+app.include_router(
+    model_router
+)
+
 
 
 @app.get(

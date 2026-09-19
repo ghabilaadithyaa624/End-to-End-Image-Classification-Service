@@ -78,6 +78,9 @@ def test_health_ready():
     data = response.json()
     assert data["status"] == "ready"
     assert data["model_version"] == "1.0.0"
+    assert "model_source" in data
+    assert "environment" in data
+
 
 
 def test_predict_file_too_large():
@@ -102,4 +105,16 @@ def test_metrics_endpoint():
     assert response.status_code == 200
     assert "image_predictions_total" in response.text
     assert "image_prediction_latency_seconds_count" in response.text
+
+
+def test_model_endpoint():
+    response = client.get("/model")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["name"] == "image-classifier"
+    assert data["version"] == "1.0.0"
+    assert data["source"] in ["local", "mlflow"]
+    assert "uri" in data
+    assert "environment" in data
+
 
