@@ -114,3 +114,28 @@ def get_test_dataloader(
         num_workers=num_workers,
         pin_memory=torch.cuda.is_available()
     )
+
+
+def create_dataloaders(
+    data_dir: str = "data/raw",
+    batch_size: int = 32,
+    image_size: Tuple[int, int] = (224, 224),
+    num_workers: int = 2
+):
+    """
+    Convenience function to create (train_loader, val_loader, test_loader)
+    from standard data_dir containing 'train', 'val', and 'test' subdirectories.
+    """
+    train_dir = os.path.join(data_dir, "train")
+    val_dir = os.path.join(data_dir, "val")
+    test_dir = os.path.join(data_dir, "test")
+
+    return get_dataloaders(
+        train_dir=train_dir,
+        val_dir=val_dir,
+        test_dir=test_dir,
+        batch_size=batch_size,
+        image_size=image_size,
+        num_workers=num_workers
+    )
+
