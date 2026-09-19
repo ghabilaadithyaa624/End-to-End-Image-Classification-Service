@@ -30,6 +30,10 @@ spec:
 
           imagePullPolicy: IfNotPresent
 
+          envFrom:
+            - configMapRef:
+                name: image-classifier-config
+
           ports:
 
             - containerPort: 8000
