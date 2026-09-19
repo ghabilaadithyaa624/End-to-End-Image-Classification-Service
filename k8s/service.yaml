@@ -1,15 +1,23 @@
 apiVersion: v1
 kind: Service
+
 metadata:
-  name: image-classification-service
+  name: image-classifier
+
   labels:
-    app: image-classification-service
+    app: image-classifier
+
 spec:
+
   type: ClusterIP
+
   selector:
-    app: image-classification-service
+    app: image-classifier
+
   ports:
-    - protocol: TCP
-      port: 80
+
+    - name: http
+      protocol: TCP
+      port: 8000
       targetPort: 8000
-      name: http
+
