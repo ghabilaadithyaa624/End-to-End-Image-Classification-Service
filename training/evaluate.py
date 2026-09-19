@@ -1,6 +1,4 @@
-import os
 import sys
-import argparse
 from pathlib import Path
 
 # Ensure project root is in sys.path when script is executed directly
@@ -9,68 +7,244 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import torch
-from sklearn.metrics import classification_report, confusion_matrix
-from training.dataset import get_dataloaders
-from training.train import load_config
+import torch.nn as nn
+import yaml
+from sklearn.metrics import (
+    accuracy_score,
+    classification_report,
+    confusion_matrix,
+)
+from torchvision import models
+
+from training.dataset import create_dataloaders
+from training.train import create_model
 
 
-def evaluate(model_path: str, config_path: str):
-    cfg = load_config(config_path)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+def load_config(config_path: str = "training/config.yaml"):
+    """Load configuration from YAML."""
 
-    if not os.path.exists(model_path):
-        raise FileNotFoundError(f"Model checkpoint not found at: {model_path}")
+    with open(config_path, "r", encoding="utf-8") as file:
+        return yaml.safe_load(file)
 
-    print(f"Loading model checkpoint from {model_path} onto {device}...")
-    loaded = torch.load(model_path, map_location=device, weights_only=True)
-    if isinstance(loaded, dict):
-        from training.train import create_model
-        model = create_model(num_classes=cfg["model"]["num_classes"], pretrained=False)
-        state_dict = loaded.get("model_state_dict", loaded)
-        model.load_state_dict(state_dict)
-    else:
-        model = loaded
-    model.to(device)
+
+def evaluate_model(
+    model,
+    dataloader,
+    criterion,
+    device,
+):
+    """
+    Evaluate a trained model and return predictions,
+    labels, and average loss.
+    """
+
     model.eval()
 
-    eval_dir = cfg["data"].get("test_data_dir") or cfg["data"]["val_data_dir"]
-    print(f"Evaluating model on dataset: {eval_dir}")
+    total_loss = 0.0
+    total_samples = 0
 
-    _, eval_loader = get_dataloaders(
-        train_dir=cfg["data"]["train_data_dir"],
-        val_dir=eval_dir,
-        batch_size=cfg["data"]["batch_size"],
-        image_size=tuple(cfg["data"]["image_size"]),
-        num_workers=0
-    )
-
-    all_preds = []
-    all_targets = []
+    all_predictions = []
+    all_labels = []
 
     with torch.no_grad():
-        for inputs, targets in eval_loader:
-            inputs = inputs.to(device)
-            outputs = model(inputs)
-            _, preds = torch.max(outputs, 1)
 
-            all_preds.extend(preds.cpu().numpy())
-            all_targets.extend(targets.numpy())
+        for images, labels in dataloader:
 
-    print("\n" + "="*50)
+            images = images.to(device)
+            labels = labels.to(device)
+
+            outputs = model(images)
+
+            loss = criterion(outputs, labels)
+
+            total_loss += loss.item() * images.size(0)
+            total_samples += images.size(0)
+
+            predictions = outputs.argmax(dim=1)
+
+            all_predictions.extend(
+                predictions.cpu().numpy()
+            )
+
+            all_labels.extend(
+                labels.cpu().numpy()
+            )
+
+    average_loss = total_loss / total_samples
+
+    return (
+        average_loss,
+        all_labels,
+        all_predictions,
+    )
+
+
+def main():
+
+    # --------------------------------------------------
+    # 1. Load configuration
+    # --------------------------------------------------
+
+    config = load_config()
+
+    # --------------------------------------------------
+    # 2. Select device
+    # --------------------------------------------------
+
+    device = torch.device(
+        "cuda" if torch.cuda.is_available() else "cpu"
+    )
+
+    print("=" * 60)
+    print("MODEL EVALUATION")
+    print("=" * 60)
+
+    print(f"Device: {device}")
+
+    if device.type == "cuda":
+        print(
+            f"GPU: {torch.cuda.get_device_name(0)}"
+        )
+
+    # --------------------------------------------------
+    # 3. Load test dataset
+    # --------------------------------------------------
+
+    _, _, test_loader = create_dataloaders(
+        data_dir=config["data"]["data_dir"],
+        batch_size=config["data"]["batch_size"],
+        num_workers=config["data"]["num_workers"],
+    )
+
+    class_names = test_loader.dataset.classes
+
+    print(f"Test samples: {len(test_loader.dataset)}")
+    print(f"Classes: {class_names}")
+
+    # --------------------------------------------------
+    # 4. Create model
+    # --------------------------------------------------
+
+    model = create_model(
+        num_classes=config["model"]["num_classes"],
+        pretrained=False,
+    )
+
+    model_path = Path(
+        config["output"]["model_path"]
+    )
+
+    if not model_path.exists():
+        raise FileNotFoundError(
+            f"Model not found: {model_path}\n"
+            "Run training first."
+        )
+
+    # --------------------------------------------------
+    # 5. Load trained weights
+    # --------------------------------------------------
+
+    state_dict = torch.load(
+        model_path,
+        map_location=device,
+        weights_only=True,
+    )
+
+    model.load_state_dict(state_dict)
+
+    model = model.to(device)
+
+    print(f"Loaded model: {model_path}")
+
+    # --------------------------------------------------
+    # 6. Loss function
+    # --------------------------------------------------
+
+    criterion = nn.CrossEntropyLoss()
+
+    # --------------------------------------------------
+    # 7. Evaluate
+    # --------------------------------------------------
+
+    test_loss, labels, predictions = evaluate_model(
+        model,
+        test_loader,
+        criterion,
+        device,
+    )
+
+    # --------------------------------------------------
+    # 8. Calculate metrics
+    # --------------------------------------------------
+
+    accuracy = accuracy_score(
+        labels,
+        predictions,
+    )
+
+    print("\n" + "=" * 60)
+    print("TEST RESULTS")
+    print("=" * 60)
+
+    print(f"Test Loss : {test_loss:.4f}")
+    print(f"Accuracy  : {accuracy:.4f}")
+    print(f"Accuracy  : {accuracy * 100:.2f}%")
+
+    # --------------------------------------------------
+    # 9. Classification report
+    # --------------------------------------------------
+
+    print("\n" + "=" * 60)
     print("CLASSIFICATION REPORT")
-    print("="*50)
-    print(classification_report(all_targets, all_preds, zero_division=0))
+    print("=" * 60)
 
+    report = classification_report(
+        labels,
+        predictions,
+        target_names=class_names,
+        digits=4,
+    )
+
+    print(report)
+
+    # --------------------------------------------------
+    # 10. Confusion matrix
+    # --------------------------------------------------
+
+    matrix = confusion_matrix(
+        labels,
+        predictions,
+    )
+
+    print("=" * 60)
     print("CONFUSION MATRIX")
-    print("="*50)
-    print(confusion_matrix(all_targets, all_preds))
+    print("=" * 60)
+
+    print(matrix)
+
+    print("\nRows    = Actual")
+    print("Columns = Predicted")
+
+    for i, class_name in enumerate(class_names):
+
+        print(
+            f"\n{class_name}:"
+        )
+
+        print(
+            f"  Predicted {class_name}: "
+            f"{matrix[i][i]}"
+        )
+
+        other_class = class_names[
+            1 - i
+        ]
+
+        print(
+            f"  Predicted {other_class}: "
+            f"{matrix[i][1 - i]}"
+        )
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Evaluate Image Classification Model")
-    default_model = "models/image_classifier.pth" if os.path.exists("models/image_classifier.pth") else "models/model.pt"
-    parser.add_argument("--model-path", type=str, default=default_model, help="Path to saved model")
-    parser.add_argument("--config", type=str, default="training/config.yaml", help="Path to config file")
-    args = parser.parse_args()
-
-    evaluate(args.model_path, args.config)
+    main()

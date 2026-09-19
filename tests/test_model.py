@@ -1,5 +1,27 @@
 import torch
+from training.train import create_model
 from app.inference.predictor import ImageClassifier
+
+
+def test_model_output_shape():
+    model = create_model(
+        num_classes=2,
+        pretrained=False,
+    )
+
+    model.eval()
+
+    sample = torch.randn(
+        2,
+        3,
+        224,
+        224,
+    )
+
+    with torch.no_grad():
+        output = model(sample)
+
+    assert output.shape == (2, 2)
 
 
 def test_classifier_initialization():
