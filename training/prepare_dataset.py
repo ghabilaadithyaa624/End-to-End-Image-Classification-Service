@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import shutil
 import random
@@ -6,17 +7,24 @@ import zipfile
 import urllib.request
 import argparse
 from pathlib import Path
-from typing import List, Tuple, Dict
-from PIL import Image, ImageDraw
+from typing import List, Dict
+import io
+from PIL import Image
 
-# Working Microsoft Kaggle Cats and Dogs dataset URL
-DATASET_URL = "https://download.microsoft.com/download/3/E/1/3E1C3F21-ECDB-4869-8368-6DEBA77B919F/kagglecatsanddogs_5340.zip"
+# Microsoft Kaggle Cats and Dogs active dataset URL
+DATASET_URL = (
+    "https://download.microsoft.com/download/3/E/1/3E1C3F21-"
+    "ECDB-4869-8368-6DEBA77B919F/kagglecatsanddogs_5340.zip"
+)
+
+# Regex matching PetImages filenames, matching the TensorFlow Datasets implementation
+NAME_RE = re.compile(r"^PetImages[\\/](Cat|Dog)[\\/]\d+\.jpg$", re.IGNORECASE)
 
 
 def download_dataset(download_url: str, dest_zip: Path) -> Path:
     """Downloads dataset zip file using stream chunks with custom User-Agent and progress display."""
-    if dest_zip.exists() and dest_zip.stat().st_size > 100000000:
-        print(f"Archive already exists at {dest_zip} ({dest_zip.stat().st_size / (1024*1024):.1f} MB). Skipping download.")
+    if dest_zip.exists() and dest_zip.stat().st_size > 100_000_000:
+        print(f"Archive already downloaded at: {dest_zip} ({dest_zip.stat().st_size / (1024*1024):.1f} MB)")
         return dest_zip
 
     dest_zip.parent.mkdir(parents=True, exist_ok=True)
@@ -43,111 +51,148 @@ def download_dataset(download_url: str, dest_zip: Path) -> Path:
                     percent = min(100.0, downloaded * 100.0 / total_size)
                     mb_down = downloaded / (1024 * 1024)
                     mb_total = total_size / (1024 * 1024)
-                    sys.stdout.write(f"\rDownloading dataset: {percent:.1f}% ({mb_down:.1f}/{mb_total:.1f} MB)")
+                    sys.stdout.write(f"\rDownloading: {percent:.1f}% ({mb_down:.1f}/{mb_total:.1f} MB)")
                 else:
-                    sys.stdout.write(f"\rDownloading dataset: {downloaded / (1024 * 1024):.1f} MB")
+                    sys.stdout.write(f"\rDownloading: {downloaded / (1024 * 1024):.1f} MB")
                 sys.stdout.flush()
 
     print("\nDownload complete!")
     return dest_zip
 
 
-def extract_dataset(zip_path: Path, extract_to: Path) -> Path:
-    """Safely extracts PetImages members from the archive, skipping corrupt headers."""
-    print(f"Extracting {zip_path.name} to {extract_to}...")
-    extract_to.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(zip_path, "r") as zip_ref:
-        for member in zip_ref.infolist():
-            try:
-                # Only extract PetImages files to save disk space and time
-                if "PetImages" in member.filename:
-                    zip_ref.extract(member, extract_to)
-            except Exception as e:
-                # Silently bypass bad metadata entries in the Microsoft archive
-                continue
-    print("Extraction complete.")
-    return extract_to
-
-
-def is_valid_image(image_path: Path) -> bool:
-    """Verifies image integrity and confirms Pillow can decode RGB channels."""
-    if not image_path.is_file() or image_path.stat().st_size == 0:
+def is_valid_image(image_bytes: bytes) -> bool:
+    """
+    Validates image data using both header inspection (JFIF magic bytes as in TFDS)
+    and Pillow PIL decoding to ensure image is completely readable by PyTorch.
+    """
+    if len(image_bytes) < 10:
         return False
+
+    # TFDS Check: valid JPEG files in Cats vs Dogs contain b'JFIF' in the initial header bytes
+    if b"JFIF" not in image_bytes[:10]:
+        return False
+
     try:
-        # First verification check
-        with Image.open(image_path) as img:
+        with Image.open(io.BytesIO(image_bytes)) as img:
             img.verify()
-        # Second decode check (Pillow verify leaves file pointer at EOF)
-        with Image.open(image_path) as img:
+        with Image.open(io.BytesIO(image_bytes)) as img:
             img.convert("RGB")
         return True
     except Exception:
         return False
 
 
-def collect_and_clean_images(class_dir: Path, max_samples: int = None) -> Tuple[List[Path], int]:
-    """Scans class directory, validates all images, and excludes corrupted files."""
-    valid_images: List[Path] = []
-    corrupted_count: int = 0
-
-    all_files = [f for f in class_dir.iterdir() if f.suffix.lower() in [".jpg", ".jpeg", ".png", ".bmp"]]
-    print(f"Scanning {len(all_files)} files in {class_dir.name}...")
-
-    for f in all_files:
-        if is_valid_image(f):
-            valid_images.append(f)
-            if max_samples and len(valid_images) >= max_samples:
-                break
-        else:
-            corrupted_count += 1
-
-    return valid_images, corrupted_count
-
-
-def split_dataset(
-    items: List[Path],
+def process_and_split_from_zip(
+    zip_path: Path,
+    output_dir: Path,
     train_ratio: float = 0.70,
     val_ratio: float = 0.15,
+    max_samples_per_class: int = None,
     seed: int = 42
-) -> Tuple[List[Path], List[Path], List[Path]]:
-    """Shuffles and splits items into train, validation, and test subsets."""
-    random.seed(seed)
-    shuffled = list(items)
-    random.shuffle(shuffled)
+):
+    """
+    Streams and filters images directly from the downloaded ZIP archive into
+    train/val/test splits without extracting the entire 824MB archive onto disk twice.
+    """
+    print(f"Reading archive: {zip_path.name}...")
 
-    total = len(shuffled)
-    train_end = int(total * train_ratio)
-    val_end = train_end + int(total * val_ratio)
+    cat_members: List[zipfile.ZipInfo] = []
+    dog_members: List[zipfile.ZipInfo] = []
 
-    train_set = shuffled[:train_end]
-    val_set = shuffled[train_end:val_end]
-    test_set = shuffled[val_end:]
+    with zipfile.ZipFile(zip_path, "r") as z:
+        for member in z.infolist():
+            match = NAME_RE.match(member.filename)
+            if not match:
+                continue
 
-    return train_set, val_set, test_set
+            label = match.group(1).lower()
+            if label == "cat":
+                cat_members.append(member)
+            elif label == "dog":
+                dog_members.append(member)
+
+        print(f"Found {len(cat_members)} Cat images and {len(dog_members)} Dog images in archive.")
+
+        # Shuffle deterministically
+        random.seed(seed)
+        random.shuffle(cat_members)
+        random.shuffle(dog_members)
+
+        splits_config = [
+            ("train", 0.0, train_ratio),
+            ("val", train_ratio, train_ratio + val_ratio),
+            ("test", train_ratio + val_ratio, 1.0)
+        ]
+
+        # Prepare target directories
+        for split_name, _, _ in splits_config:
+            (output_dir / split_name / "cat").mkdir(parents=True, exist_ok=True)
+            (output_dir / split_name / "dog").mkdir(parents=True, exist_ok=True)
+
+        stats: Dict[str, Dict[str, int]] = {
+            "cat": {"valid": 0, "corrupted": 0, "train": 0, "val": 0, "test": 0},
+            "dog": {"valid": 0, "corrupted": 0, "train": 0, "val": 0, "test": 0}
+        }
+
+        for class_name, members in [("cat", cat_members), ("dog", dog_members)]:
+            print(f"\nProcessing and filtering {class_name.upper()} images...")
+            valid_buffers = []
+
+            for member in members:
+                try:
+                    data = z.read(member)
+                    if is_valid_image(data):
+                        valid_buffers.append(data)
+                        if max_samples_per_class and len(valid_buffers) >= max_samples_per_class:
+                            break
+                    else:
+                        stats[class_name]["corrupted"] += 1
+                except Exception:
+                    stats[class_name]["corrupted"] += 1
+
+            total_valid = len(valid_buffers)
+            stats[class_name]["valid"] = total_valid
+            print(f"  Valid: {total_valid} | Corrupted/Excluded: {stats[class_name]['corrupted']}")
+
+            # Split indices
+            train_end = int(total_valid * train_ratio)
+            val_end = train_end + int(total_valid * val_ratio)
+
+            split_data = {
+                "train": valid_buffers[:train_end],
+                "val": valid_buffers[train_end:val_end],
+                "test": valid_buffers[val_end:]
+            }
+
+            for split_name, items in split_data.items():
+                dest_dir = output_dir / split_name / class_name
+                stats[class_name][split_name] = len(items)
+                for idx, img_bytes in enumerate(items):
+                    out_path = dest_dir / f"{class_name}_{idx:05d}.jpg"
+                    with open(out_path, "wb") as f_out:
+                        f_out.write(img_bytes)
+
+    print("\n" + "=" * 58)
+    print("DATASET PREPARATION COMPLETE")
+    print("=" * 58)
+    print(f"{'Class':<8} | {'Valid':<8} | {'Corrupted':<10} | {'Train':<7} | {'Val':<6} | {'Test':<6}")
+    print("-" * 58)
+    for cls_name, s in stats.items():
+        print(f"{cls_name:<8} | {s['valid']:<8} | {s['corrupted']:<10} | {s['train']:<7} | {s['val']:<6} | {s['test']:<6}")
+    print("=" * 58)
+    print(f"Output directory ready at: {output_dir.resolve()}\n")
 
 
-def copy_files(file_list: List[Path], target_dir: Path, class_name: str):
-    """Copies a list of image files into the destination class folder."""
-    dest_folder = target_dir / class_name
-    dest_folder.mkdir(parents=True, exist_ok=True)
-    for idx, src_file in enumerate(file_list):
-        dest_file = dest_folder / f"{class_name}_{idx:05d}{src_file.suffix.lower()}"
-        shutil.copy2(src_file, dest_file)
-
-
-def create_demo_dataset(output_dir: Path, samples_per_class: int = 20):
-    """Generates a small clean synthetic image dataset for offline testing and fast CI runs."""
-    print(f"Creating demo dataset in {output_dir} ({samples_per_class} images per class)...")
+def create_demo_dataset(output_dir: Path, samples_per_class: int = 30):
+    """Generates synthetic test images for dry-runs and offline environments."""
+    from PIL import ImageDraw
+    print(f"Generating synthetic demo dataset in {output_dir} ({samples_per_class} per class)...")
     splits = {
         "train": int(samples_per_class * 0.7),
         "val": int(samples_per_class * 0.15),
         "test": samples_per_class - int(samples_per_class * 0.7) - int(samples_per_class * 0.15)
     }
-
-    colors = {
-        "cat": (220, 100, 80),
-        "dog": (80, 140, 220)
-    }
+    colors = {"cat": (220, 100, 80), "dog": (80, 140, 220)}
 
     for split_name, count in splits.items():
         for class_name, color in colors.items():
@@ -158,117 +203,44 @@ def create_demo_dataset(output_dir: Path, samples_per_class: int = 20):
                 draw = ImageDraw.Draw(img)
                 draw.text((20, 20), f"{class_name.upper()} #{i}", fill=(255, 255, 255))
                 img.save(folder / f"{class_name}_{i:05d}.jpg")
-
     print("Demo dataset generated successfully!")
 
 
-def prepare_cats_vs_dogs(
-    raw_source_dir: Path = None,
-    output_dir: Path = Path("data/raw"),
-    train_ratio: float = 0.70,
-    val_ratio: float = 0.15,
-    max_samples_per_class: int = None,
-    seed: int = 42,
-    download_url: str = DATASET_URL,
-    demo: bool = False
-):
-    """Main orchestration pipeline to download, clean, split, and save the dataset."""
-    if demo:
-        create_demo_dataset(output_dir, samples_per_class=max_samples_per_class or 30)
-        return
-
-    temp_dir = Path("data/_temp_downloads")
-
-    # Step 1: Obtain source images
-    if raw_source_dir is None or not raw_source_dir.exists():
-        zip_path = temp_dir / "kagglecatsanddogs.zip"
-        download_dataset(download_url, zip_path)
-        extracted_path = temp_dir / "extracted"
-        if not (extracted_path / "PetImages").exists():
-            extract_dataset(zip_path, extracted_path)
-        source_pet_images = extracted_path / "PetImages"
-    else:
-        source_pet_images = raw_source_dir
-
-    if not source_pet_images.exists():
-        if (source_pet_images / "PetImages").exists():
-            source_pet_images = source_pet_images / "PetImages"
-        else:
-            raise FileNotFoundError(f"Could not locate 'PetImages' folder in {source_pet_images}")
-
-    classes = {"cat": ["Cat", "cat"], "dog": ["Dog", "dog"]}
-    stats: Dict[str, Dict[str, int]] = {}
-
-    train_dir = output_dir / "train"
-    val_dir = output_dir / "val"
-    test_dir = output_dir / "test"
-
-    for standard_label, possible_names in classes.items():
-        class_folder = None
-        for name in possible_names:
-            candidate = source_pet_images / name
-            if candidate.exists():
-                class_folder = candidate
-                break
-
-        if not class_folder:
-            raise FileNotFoundError(f"Missing folder for {standard_label} in {source_pet_images}")
-
-        print(f"\nProcessing class: {standard_label.upper()} from {class_folder}...")
-        valid_files, corrupted = collect_and_clean_images(class_folder, max_samples=max_samples_per_class)
-        print(f"  Valid: {len(valid_files)} | Corrupted/Excluded: {corrupted}")
-
-        train_files, val_files, test_files = split_dataset(
-            valid_files,
-            train_ratio=train_ratio,
-            val_ratio=val_ratio,
-            seed=seed
-        )
-
-        print(f"  Splits -> Train: {len(train_files)}, Val: {len(val_files)}, Test: {len(test_files)}")
-        copy_files(train_files, train_dir, standard_label)
-        copy_files(val_files, val_dir, standard_label)
-        copy_files(test_files, test_dir, standard_label)
-
-        stats[standard_label] = {
-            "valid": len(valid_files),
-            "corrupted": corrupted,
-            "train": len(train_files),
-            "val": len(val_files),
-            "test": len(test_files),
-        }
-
-    print("\n" + "=" * 55)
-    print("DATASET PREPARATION COMPLETE")
-    print("=" * 55)
-    print(f"{'Class':<8} | {'Valid':<8} | {'Corrupted':<10} | {'Train':<7} | {'Val':<6} | {'Test':<6}")
-    print("-" * 55)
-    for cls_name, s in stats.items():
-        print(f"{cls_name:<8} | {s['valid']:<8} | {s['corrupted']:<10} | {s['train']:<7} | {s['val']:<6} | {s['test']:<6}")
-    print("=" * 55)
-    print(f"Output directory ready at: {output_dir.resolve()}\n")
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Download, validate, and split Cats vs Dogs dataset.")
-    parser.add_argument("--source-dir", type=str, default=None, help="Local path to PetImages if already downloaded")
-    parser.add_argument("--output-dir", type=str, default="data/raw", help="Target output dataset directory")
-    parser.add_argument("--train-ratio", type=float, default=0.70, help="Train partition ratio (default 0.70)")
-    parser.add_argument("--val-ratio", type=float, default=0.15, help="Validation partition ratio (default 0.15)")
-    parser.add_argument("--max-samples", type=int, default=None, help="Max valid samples per class (for testing/dry-runs)")
-    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
-    parser.add_argument("--url", type=str, default=DATASET_URL, help="URL to download dataset zip from")
-    parser.add_argument("--demo", action="store_true", help="Generate synthetic demo dataset for quick offline testing")
+def main():
+    parser = argparse.ArgumentParser(description="Prepare Cats vs Dogs Dataset with TFDS-grade validation.")
+    parser.add_argument("--output-dir", type=str, default="data/raw", help="Target output directory")
+    parser.add_argument("--train-ratio", type=float, default=0.70, help="Train split ratio (default 0.70)")
+    parser.add_argument("--val-ratio", type=float, default=0.15, help="Validation split ratio (default 0.15)")
+    parser.add_argument("--max-samples", type=int, default=None, help="Max valid samples per class for quick dry-runs")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for deterministic splits")
+    parser.add_argument("--url", type=str, default=DATASET_URL, help="Download URL for kagglecatsanddogs zip")
+    parser.add_argument("--zip-path", type=str, default=None, help="Path to pre-downloaded kagglecatsanddogs.zip")
+    parser.add_argument("--demo", action="store_true", help="Generate instant demo dataset without downloading 800MB")
 
     args = parser.parse_args()
+    out_dir = Path(args.output_dir)
 
-    prepare_cats_vs_dogs(
-        raw_source_dir=Path(args.source_dir) if args.source_dir else None,
-        output_dir=Path(args.output_dir),
+    if args.demo:
+        create_demo_dataset(out_dir, samples_per_class=args.max_samples or 30)
+        return
+
+    # Check for local zip or download
+    if args.zip_path and Path(args.zip_path).exists():
+        archive_path = Path(args.zip_path)
+    else:
+        cache_dir = Path("data/_temp_downloads")
+        archive_path = cache_dir / "kagglecatsanddogs_5340.zip"
+        download_dataset(args.url, archive_path)
+
+    process_and_split_from_zip(
+        zip_path=archive_path,
+        output_dir=out_dir,
         train_ratio=args.train_ratio,
         val_ratio=args.val_ratio,
         max_samples_per_class=args.max_samples,
-        seed=args.seed,
-        download_url=args.url,
-        demo=args.demo
+        seed=args.seed
     )
+
+
+if __name__ == "__main__":
+    main()
