@@ -24,6 +24,8 @@ models/*.onnx
 # MLflow
 mlruns/
 mlartifacts/
+mlflow/*.db
+*.db
 !mlflow/.gitkeep
 
 # Environment
