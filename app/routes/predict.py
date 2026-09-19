@@ -11,6 +11,10 @@ from app.inference.preprocessing import (
 from app.inference.predictor import (
     ImagePredictor,
 )
+from app.schemas.prediction import PredictionResponse
+
+
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB limit
 
 
 router = APIRouter(
@@ -22,7 +26,10 @@ router = APIRouter(
 predictor = ImagePredictor()
 
 
-@router.post("")
+@router.post(
+    "",
+    response_model=PredictionResponse,
+)
 async def predict(
     file: UploadFile = File(...)
 ):
@@ -52,6 +59,12 @@ async def predict(
             detail="Uploaded file is empty.",
         )
 
+    if len(image_bytes) > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail="Image exceeds the 10 MB limit.",
+        )
+
     try:
 
         image_tensor = preprocess_image(
@@ -70,3 +83,4 @@ async def predict(
             status_code=400,
             detail=f"Unable to process image: {exc}",
         ) from exc
+

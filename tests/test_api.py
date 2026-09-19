@@ -62,3 +62,26 @@ def test_predict_with_real_image():
     assert 0.0 <= data["confidence"] <= 1.0
 
 
+def test_health_ready():
+    response = client.get("/health/ready")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "ready"
+    assert data["model_version"] == "1.0.0"
+
+
+def test_predict_file_too_large():
+    # 10 MB + 1 byte dummy payload
+    large_bytes = b"0" * (10 * 1024 * 1024 + 1)
+    response = client.post(
+        "/predict",
+        files={
+            "file": (
+                "large.jpg",
+                large_bytes,
+                "image/jpeg",
+            )
+        },
+    )
+    assert response.status_code == 413
+    assert "Image exceeds the 10 MB limit" in response.json()["detail"]
