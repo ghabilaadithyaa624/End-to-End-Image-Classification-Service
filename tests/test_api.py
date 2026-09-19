@@ -95,3 +95,11 @@ def test_predict_file_too_large():
     )
     assert response.status_code == 413
     assert "Image exceeds the 10 MB limit" in response.json()["detail"]
+
+
+def test_metrics_endpoint():
+    response = client.get("/metrics")
+    assert response.status_code == 200
+    assert "image_predictions_total" in response.text
+    assert "image_prediction_latency_seconds_count" in response.text
+

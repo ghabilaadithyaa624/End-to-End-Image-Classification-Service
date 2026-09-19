@@ -1,0 +1,84 @@
+{
+  "dashboard": {
+    "id": null,
+    "uid": "image-classifier-metrics",
+    "title": "Image Classifier - MLOps Service Observability",
+    "tags": ["mlops", "image-classifier", "prometheus"],
+    "timezone": "browser",
+    "schemaVersion": 38,
+    "version": 1,
+    "refresh": "5s",
+    "panels": [
+      {
+        "id": 1,
+        "gridPos": {"h": 6, "w": 6, "x": 0, "y": 0},
+        "type": "stat",
+        "title": "Total Predictions",
+        "datasource": {"type": "prometheus", "uid": "afypsic7t7280d"},
+        "targets": [
+          {
+            "expr": "sum(image_predictions_total)",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "gridPos": {"h": 6, "w": 6, "x": 6, "y": 0},
+        "type": "piechart",
+        "title": "Predictions by Class",
+        "datasource": {"type": "prometheus", "uid": "afypsic7t7280d"},
+        "targets": [
+          {
+            "expr": "sum by (prediction) (image_predictions_total)",
+            "legendFormat": "{{prediction}}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "gridPos": {"h": 6, "w": 6, "x": 12, "y": 0},
+        "type": "timeseries",
+        "title": "Prediction Rate (req/s)",
+        "datasource": {"type": "prometheus", "uid": "afypsic7t7280d"},
+        "targets": [
+          {
+            "expr": "sum(rate(image_predictions_total[5m]))",
+            "legendFormat": "Rate",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "gridPos": {"h": 6, "w": 6, "x": 18, "y": 0},
+        "type": "stat",
+        "title": "Prediction Error Rate",
+        "datasource": {"type": "prometheus", "uid": "afypsic7t7280d"},
+        "targets": [
+          {
+            "expr": "sum(rate(image_prediction_errors_total[5m]))",
+            "legendFormat": "Error Rate",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 6},
+        "type": "timeseries",
+        "title": "Average Prediction Latency (seconds)",
+        "datasource": {"type": "prometheus", "uid": "afypsic7t7280d"},
+        "targets": [
+          {
+            "expr": "rate(image_prediction_latency_seconds_sum[5m]) / rate(image_prediction_latency_seconds_count[5m])",
+            "legendFormat": "Avg Latency",
+            "refId": "A"
+          }
+        ]
+      }
+    ]
+  },
+  "overwrite": true
+}

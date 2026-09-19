@@ -6,6 +6,6 @@ metadata:
 
 data:
   MODEL_VERSION: "1.0.0"
-  MODEL_PATH: "/app/models/best_model.pth"
+  MODEL_PATH: "/app/models/image_classifier.pth"
   ENVIRONMENT: "kubernetes"
 
