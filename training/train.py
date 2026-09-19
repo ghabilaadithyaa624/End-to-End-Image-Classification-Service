@@ -6,6 +6,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+import mlflow
+import mlflow.pytorch
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -135,7 +137,19 @@ def main():
     config = load_config()
 
     # --------------------------------------------------
-    # 2. Select device
+    # 2. Configure MLflow
+    # --------------------------------------------------
+
+    mlflow.set_tracking_uri(
+        config.get("mlflow", {}).get("tracking_uri", "http://127.0.0.1:5000")
+    )
+
+    mlflow.set_experiment(
+        config["project"]["name"]
+    )
+
+    # --------------------------------------------------
+    # 3. Select device
     # --------------------------------------------------
 
     device = torch.device(
@@ -143,7 +157,7 @@ def main():
     )
 
     print("=" * 60)
-    print("IMAGE CLASSIFICATION TRAINING")
+    print("IMAGE CLASSIFICATION TRAINING (MLflow Tracking Enabled)")
     print("=" * 60)
 
     print(f"PyTorch version : {torch.__version__}")
@@ -153,10 +167,12 @@ def main():
     if device.type == "cuda":
         print(f"GPU             : {torch.cuda.get_device_name(0)}")
 
+    print(f"MLflow URI      : {mlflow.get_tracking_uri()}")
+    print(f"MLflow Exp      : {config['project']['name']}")
     print("=" * 60)
 
     # --------------------------------------------------
-    # 3. Create DataLoaders
+    # 4. Create DataLoaders
     # --------------------------------------------------
 
     train_loader, val_loader, test_loader = create_dataloaders(
@@ -174,7 +190,7 @@ def main():
     )
 
     # --------------------------------------------------
-    # 4. Create model
+    # 5. Create model & optimizer
     # --------------------------------------------------
 
     model = create_model(
@@ -184,15 +200,7 @@ def main():
 
     model = model.to(device)
 
-    # --------------------------------------------------
-    # 5. Loss function
-    # --------------------------------------------------
-
     criterion = nn.CrossEntropyLoss()
-
-    # --------------------------------------------------
-    # 6. Optimizer
-    # --------------------------------------------------
 
     optimizer = optim.Adam(
         model.fc.parameters(),
@@ -200,88 +208,116 @@ def main():
         weight_decay=config["training"]["weight_decay"],
     )
 
-    # --------------------------------------------------
-    # 7. Training loop
-    # --------------------------------------------------
-
     epochs = config["training"]["epochs"]
-
     best_val_accuracy = 0.0
 
     model_path = Path(config["output"]["model_path"])
-    checkpoint_path = Path(
-        config["output"]["checkpoint_path"]
-    )
+    checkpoint_path = Path(config["output"]["checkpoint_path"])
+    model_path.parent.mkdir(parents=True, exist_ok=True)
 
-    model_path.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
+    # --------------------------------------------------
+    # 6. Wrapped in MLflow Run
+    # --------------------------------------------------
 
-    print("\nStarting training...\n")
+    with mlflow.start_run():
 
-    for epoch in range(epochs):
-
-        train_loss, train_accuracy = train_one_epoch(
-            model,
-            train_loader,
-            criterion,
-            optimizer,
-            device,
+        # Log training parameters
+        mlflow.log_params(
+            {
+                "model": config["model"]["name"],
+                "epochs": epochs,
+                "batch_size": config["data"]["batch_size"],
+                "learning_rate": config["training"]["learning_rate"],
+                "weight_decay": config["training"]["weight_decay"],
+                "image_size": config["data"]["image_size"],
+                "optimizer": "Adam",
+                "device": str(device),
+            }
         )
 
-        val_loss, val_accuracy = validate(
-            model,
-            val_loader,
-            criterion,
-            device,
-        )
+        print("\nStarting training with MLflow tracking...\n")
 
-        print(
-            f"Epoch [{epoch + 1}/{epochs}] "
-            f"Train Loss: {train_loss:.4f} "
-            f"Train Acc: {train_accuracy:.4f} "
-            f"Val Loss: {val_loss:.4f} "
-            f"Val Acc: {val_accuracy:.4f}"
-        )
+        for epoch in range(epochs):
 
-        # --------------------------------------------------
-        # Save best model
-        # --------------------------------------------------
-
-        if val_accuracy > best_val_accuracy:
-
-            best_val_accuracy = val_accuracy
-
-            torch.save(
-                model.state_dict(),
-                model_path,
+            train_loss, train_accuracy = train_one_epoch(
+                model,
+                train_loader,
+                criterion,
+                optimizer,
+                device,
             )
 
-            torch.save(
+            val_loss, val_accuracy = validate(
+                model,
+                val_loader,
+                criterion,
+                device,
+            )
+
+            # Log metrics for every epoch to MLflow
+            mlflow.log_metrics(
                 {
-                    "epoch": epoch + 1,
-                    "model_state_dict": model.state_dict(),
-                    "optimizer_state_dict": optimizer.state_dict(),
+                    "train_loss": train_loss,
+                    "train_accuracy": train_accuracy,
+                    "val_loss": val_loss,
                     "val_accuracy": val_accuracy,
                 },
-                checkpoint_path,
+                step=epoch + 1,
             )
 
             print(
-                f"  --> Best model saved "
-                f"(val accuracy: {val_accuracy:.4f})"
+                f"Epoch [{epoch + 1}/{epochs}] "
+                f"Train Loss: {train_loss:.4f} "
+                f"Train Acc: {train_accuracy:.4f} "
+                f"Val Loss: {val_loss:.4f} "
+                f"Val Acc: {val_accuracy:.4f}"
             )
 
+            # Save best model checkpoint locally
+            if val_accuracy > best_val_accuracy:
+                best_val_accuracy = val_accuracy
+
+                torch.save(
+                    model.state_dict(),
+                    model_path,
+                )
+
+                torch.save(
+                    {
+                        "epoch": epoch + 1,
+                        "model_state_dict": model.state_dict(),
+                        "optimizer_state_dict": optimizer.state_dict(),
+                        "val_accuracy": val_accuracy,
+                    },
+                    checkpoint_path,
+                )
+
+                print(
+                    f"  --> Best model saved "
+                    f"(val accuracy: {val_accuracy:.4f})"
+                )
+
+        # Log final summary metric to MLflow
+        mlflow.log_metric(
+            "best_val_accuracy",
+            best_val_accuracy,
+        )
+
+        # Log model artifact into MLflow
+        print("\nLogging trained model artifact to MLflow...")
+        try:
+            mlflow.pytorch.log_model(
+                model,
+                name="model",
+            )
+            print("Model artifact logged successfully to MLflow.")
+        except Exception as err:
+            print(f"Warning: Could not log model artifact to MLflow: {err}")
+
     print("\n" + "=" * 60)
-    print("TRAINING COMPLETE")
+    print("TRAINING COMPLETE (Tracked in MLflow)")
     print("=" * 60)
-
-    print(
-        f"Best validation accuracy: "
-        f"{best_val_accuracy:.4f}"
-    )
-
+    print(f"Best validation accuracy: {best_val_accuracy:.4f}")
     print(f"Model saved to: {model_path}")
     print(f"Checkpoint saved to: {checkpoint_path}")
 

@@ -5,6 +5,7 @@ project:
   experiment_name: "resnet18-cat-dog-classification"
 
 model:
+  name: "resnet18"
   architecture: "resnet18"
   pretrained: true
   num_classes: 2
@@ -38,5 +39,5 @@ output:
   checkpoint_path: "models/best_checkpoint.pth"
 
 mlflow:
-  tracking_uri: "./mlruns"
+  tracking_uri: "http://127.0.0.1:5000"
   log_models: true
