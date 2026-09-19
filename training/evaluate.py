@@ -14,7 +14,15 @@ def evaluate(model_path: str, config_path: str):
         raise FileNotFoundError(f"Model checkpoint not found at: {model_path}")
 
     print(f"Loading model checkpoint from {model_path} onto {device}...")
-    model = torch.load(model_path, map_location=device)
+    loaded = torch.load(model_path, map_location=device)
+    if isinstance(loaded, dict):
+        from training.train import create_model
+        model = create_model(num_classes=cfg["model"]["num_classes"], pretrained=False)
+        state_dict = loaded.get("model_state_dict", loaded)
+        model.load_state_dict(state_dict)
+    else:
+        model = loaded
+    model.to(device)
     model.eval()
 
     eval_dir = cfg["data"].get("test_data_dir") or cfg["data"]["val_data_dir"]

@@ -31,7 +31,17 @@ class ImageClassifier:
         if os.path.exists(self.model_path):
             try:
                 logger.info(f"Loading custom model from {self.model_path} onto {self.device}")
-                model = torch.load(self.model_path, map_location=self.device)
+                loaded = torch.load(self.model_path, map_location=self.device)
+                if isinstance(loaded, dict):
+                    # ResNet18 binary classifier
+                    model = models.resnet18(weights=None)
+                    model.fc = torch.nn.Linear(model.fc.in_features, 2)
+                    state_dict = loaded.get("model_state_dict", loaded)
+                    model.load_state_dict(state_dict)
+                    self.classes = ["cat", "dog"]
+                else:
+                    model = loaded
+                model.to(self.device)
                 model.eval()
                 return model
             except Exception as e:

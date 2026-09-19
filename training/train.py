@@ -1,151 +1,283 @@
-import os
-import argparse
-import yaml
+from pathlib import Path
+
 import torch
 import torch.nn as nn
+import torch.optim as optim
+import yaml
 from torchvision import models
-import mlflow
-import mlflow.pytorch
-from training.dataset import get_dataloaders
+
+from training.dataset import create_dataloaders
 
 
-def load_config(config_path: str) -> dict:
-    with open(config_path, "r") as f:
-        return yaml.safe_load(f)
+def load_config(config_path: str = "training/config.yaml"):
+    """Load training configuration from YAML."""
+
+    with open(config_path, "r", encoding="utf-8") as file:
+        return yaml.safe_load(file)
 
 
-def build_model(architecture: str, num_classes: int, pretrained: bool = True) -> nn.Module:
-    """Constructs the vision model with a customized classifier head."""
-    if architecture == "mobilenet_v3_small":
-        weights = models.MobileNet_V3_Small_Weights.DEFAULT if pretrained else None
-        model = models.mobilenet_v3_small(weights=weights)
-        in_features = model.classifier[3].in_features
-        model.classifier[3] = nn.Linear(in_features, num_classes)
-    elif architecture == "resnet18":
-        weights = models.ResNet18_Weights.DEFAULT if pretrained else None
-        model = models.resnet18(weights=weights)
-        in_features = model.fc.in_features
-        model.fc = nn.Linear(in_features, num_classes)
+def create_model(num_classes: int, pretrained: bool = True):
+    """Create a ResNet18 model for binary classification."""
+
+    if pretrained:
+        weights = models.ResNet18_Weights.DEFAULT
     else:
-        raise ValueError(f"Unsupported architecture: {architecture}")
+        weights = None
+
+    model = models.resnet18(weights=weights)
+
+    # Freeze the pretrained backbone initially.
+    for parameter in model.parameters():
+        parameter.requires_grad = False
+
+    # Replace the final classification layer.
+    model.fc = nn.Linear(
+        model.fc.in_features,
+        num_classes,
+    )
+
     return model
 
 
-def train_one_epoch(model, loader, criterion, optimizer, device):
+def train_one_epoch(
+    model,
+    dataloader,
+    criterion,
+    optimizer,
+    device,
+):
+    """Train the model for one epoch."""
+
     model.train()
-    running_loss, correct, total = 0.0, 0, 0
-    for inputs, labels in loader:
-        inputs, labels = inputs.to(device), labels.to(device)
+
+    running_loss = 0.0
+    correct = 0
+    total = 0
+
+    for images, labels in dataloader:
+
+        images = images.to(device)
+        labels = labels.to(device)
+
         optimizer.zero_grad()
-        outputs = model(inputs)
+
+        outputs = model(images)
+
         loss = criterion(outputs, labels)
+
         loss.backward()
+
         optimizer.step()
 
-        running_loss += loss.item() * inputs.size(0)
-        _, preds = torch.max(outputs, 1)
-        correct += (preds == labels).sum().item()
+        running_loss += loss.item() * images.size(0)
+
+        predictions = outputs.argmax(dim=1)
+
+        correct += (predictions == labels).sum().item()
         total += labels.size(0)
 
-    epoch_loss = running_loss / max(total, 1)
-    epoch_acc = correct / max(total, 1)
-    return epoch_loss, epoch_acc
+    epoch_loss = running_loss / total
+    epoch_accuracy = correct / total
+
+    return epoch_loss, epoch_accuracy
 
 
-def validate(model, loader, criterion, device):
+def validate(
+    model,
+    dataloader,
+    criterion,
+    device,
+):
+    """Evaluate the model on validation data."""
+
     model.eval()
-    running_loss, correct, total = 0.0, 0, 0
+
+    running_loss = 0.0
+    correct = 0
+    total = 0
+
     with torch.no_grad():
-        for inputs, labels in loader:
-            inputs, labels = inputs.to(device), labels.to(device)
-            outputs = model(inputs)
+
+        for images, labels in dataloader:
+
+            images = images.to(device)
+            labels = labels.to(device)
+
+            outputs = model(images)
+
             loss = criterion(outputs, labels)
 
-            running_loss += loss.item() * inputs.size(0)
-            _, preds = torch.max(outputs, 1)
-            correct += (preds == labels).sum().item()
+            running_loss += loss.item() * images.size(0)
+
+            predictions = outputs.argmax(dim=1)
+
+            correct += (predictions == labels).sum().item()
             total += labels.size(0)
 
-    val_loss = running_loss / max(total, 1)
-    val_acc = correct / max(total, 1)
-    return val_loss, val_acc
+    epoch_loss = running_loss / total
+    epoch_accuracy = correct / total
+
+    return epoch_loss, epoch_accuracy
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Train Image Classification Model")
-    parser.add_argument("--config", type=str, default="training/config.yaml", help="Path to configuration file")
-    args = parser.parse_args()
 
-    cfg = load_config(args.config)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # --------------------------------------------------
+    # 1. Load configuration
+    # --------------------------------------------------
 
-    # Set up MLflow
-    mlflow.set_tracking_uri(cfg["mlflow"]["tracking_uri"])
-    mlflow.set_experiment(cfg["project"]["experiment_name"])
+    config = load_config()
 
-    # Dataloaders
-    train_loader, val_loader = get_dataloaders(
-        train_dir=cfg["data"]["train_data_dir"],
-        val_dir=cfg["data"]["val_data_dir"],
-        batch_size=cfg["data"]["batch_size"],
-        image_size=tuple(cfg["data"]["image_size"]),
-        num_workers=0  # Safe cross-platform default
+    # --------------------------------------------------
+    # 2. Select device
+    # --------------------------------------------------
+
+    device = torch.device(
+        "cuda" if torch.cuda.is_available() else "cpu"
     )
 
-    model = build_model(
-        architecture=cfg["model"]["architecture"],
-        num_classes=cfg["model"]["num_classes"],
-        pretrained=cfg["model"]["pretrained"]
+    print("=" * 60)
+    print("IMAGE CLASSIFICATION TRAINING")
+    print("=" * 60)
+
+    print(f"PyTorch version : {torch.__version__}")
+    print(f"CUDA available  : {torch.cuda.is_available()}")
+    print(f"Device          : {device}")
+
+    if device.type == "cuda":
+        print(f"GPU             : {torch.cuda.get_device_name(0)}")
+
+    print("=" * 60)
+
+    # --------------------------------------------------
+    # 3. Create DataLoaders
+    # --------------------------------------------------
+
+    train_loader, val_loader, test_loader = create_dataloaders(
+        data_dir=config["data"]["data_dir"],
+        batch_size=config["data"]["batch_size"],
+        num_workers=config["data"]["num_workers"],
     )
-    model.to(device)
+
+    print(f"Training images   : {len(train_loader.dataset)}")
+    print(f"Validation images : {len(val_loader.dataset)}")
+    print(f"Test images       : {len(test_loader.dataset)}")
+
+    print(
+        f"Classes           : {train_loader.dataset.classes}"
+    )
+
+    # --------------------------------------------------
+    # 4. Create model
+    # --------------------------------------------------
+
+    model = create_model(
+        num_classes=config["model"]["num_classes"],
+        pretrained=config["model"]["pretrained"],
+    )
+
+    model = model.to(device)
+
+    # --------------------------------------------------
+    # 5. Loss function
+    # --------------------------------------------------
 
     criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.AdamW(
-        model.parameters(),
-        lr=cfg["hyperparameters"]["learning_rate"],
-        weight_decay=cfg["hyperparameters"]["weight_decay"]
+
+    # --------------------------------------------------
+    # 6. Optimizer
+    # --------------------------------------------------
+
+    optimizer = optim.Adam(
+        model.fc.parameters(),
+        lr=config["training"]["learning_rate"],
+        weight_decay=config["training"]["weight_decay"],
     )
 
-    with mlflow.start_run():
-        mlflow.log_params({
-            "architecture": cfg["model"]["architecture"],
-            "epochs": cfg["hyperparameters"]["epochs"],
-            "learning_rate": cfg["hyperparameters"]["learning_rate"],
-            "batch_size": cfg["data"]["batch_size"],
-            "optimizer": cfg["hyperparameters"]["optimizer"],
-        })
+    # --------------------------------------------------
+    # 7. Training loop
+    # --------------------------------------------------
 
-        best_acc = 0.0
-        save_path = cfg["model"]["save_path"]
-        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    epochs = config["training"]["epochs"]
 
-        for epoch in range(1, cfg["hyperparameters"]["epochs"] + 1):
-            train_loss, train_acc = train_one_epoch(model, train_loader, criterion, optimizer, device)
-            val_loss, val_acc = validate(model, val_loader, criterion, device)
+    best_val_accuracy = 0.0
 
-            mlflow.log_metrics({
-                "train_loss": train_loss,
-                "train_acc": train_acc,
-                "val_loss": val_loss,
-                "val_acc": val_acc
-            }, step=epoch)
+    model_path = Path(config["output"]["model_path"])
+    checkpoint_path = Path(
+        config["output"]["checkpoint_path"]
+    )
 
-            print(f"Epoch [{epoch}/{cfg['hyperparameters']['epochs']}] - "
-                  f"Train Loss: {train_loss:.4f} Acc: {train_acc:.4f} | "
-                  f"Val Loss: {val_loss:.4f} Acc: {val_acc:.4f}")
+    model_path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
-            if val_acc > best_acc:
-                best_acc = val_acc
-                torch.save(model, save_path)
-                print(f"--> Saved best model checkpoint to {save_path}")
+    print("\nStarting training...\n")
 
-        # Save final model
-        if not os.path.exists(save_path):
-            torch.save(model, save_path)
+    for epoch in range(epochs):
 
-        if cfg["mlflow"].get("log_models", True):
-            mlflow.pytorch.log_model(model, artifact_path="model")
-            print("Model logged to MLflow artifacts.")
+        train_loss, train_accuracy = train_one_epoch(
+            model,
+            train_loader,
+            criterion,
+            optimizer,
+            device,
+        )
+
+        val_loss, val_accuracy = validate(
+            model,
+            val_loader,
+            criterion,
+            device,
+        )
+
+        print(
+            f"Epoch [{epoch + 1}/{epochs}] "
+            f"Train Loss: {train_loss:.4f} "
+            f"Train Acc: {train_accuracy:.4f} "
+            f"Val Loss: {val_loss:.4f} "
+            f"Val Acc: {val_accuracy:.4f}"
+        )
+
+        # --------------------------------------------------
+        # Save best model
+        # --------------------------------------------------
+
+        if val_accuracy > best_val_accuracy:
+
+            best_val_accuracy = val_accuracy
+
+            torch.save(
+                model.state_dict(),
+                model_path,
+            )
+
+            torch.save(
+                {
+                    "epoch": epoch + 1,
+                    "model_state_dict": model.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "val_accuracy": val_accuracy,
+                },
+                checkpoint_path,
+            )
+
+            print(
+                f"  ✓ Best model saved "
+                f"(val accuracy: {val_accuracy:.4f})"
+            )
+
+    print("\n" + "=" * 60)
+    print("TRAINING COMPLETE")
+    print("=" * 60)
+
+    print(
+        f"Best validation accuracy: "
+        f"{best_val_accuracy:.4f}"
+    )
+
+    print(f"Model saved to: {model_path}")
+    print(f"Checkpoint saved to: {checkpoint_path}")
 
 
 if __name__ == "__main__":
