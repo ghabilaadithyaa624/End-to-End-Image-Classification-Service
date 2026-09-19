@@ -1,21 +1,40 @@
-import io
-from typing import Tuple
+from io import BytesIO
+from typing import Tuple, Optional
 from PIL import Image
 import torch
 from torchvision import transforms
 
-# Standard ImageNet normalization parameters
-IMAGENET_MEAN = [0.485, 0.456, 0.406]
-IMAGENET_STD = [0.229, 0.224, 0.225]
+
+IMAGE_SIZE = 224
+
+CLASS_NAMES = [
+    "cat",
+    "dog",
+]
 
 
-def get_inference_transforms(image_size: Tuple[int, int] = (224, 224)) -> transforms.Compose:
-    """Returns the transformation pipeline used for model inference."""
-    return transforms.Compose([
-        transforms.Resize(image_size),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
-    ])
+def get_inference_transform(image_size: Optional[Tuple[int, int]] = None):
+    """
+    Return the same preprocessing used during
+    validation and testing.
+    """
+    size = image_size if image_size is not None else (IMAGE_SIZE, IMAGE_SIZE)
+    return transforms.Compose(
+        [
+            transforms.Resize(
+                size
+            ),
+            transforms.ToTensor(),
+            transforms.Normalize(
+                mean=[0.485, 0.456, 0.406],
+                std=[0.229, 0.224, 0.225],
+            ),
+        ]
+    )
+
+
+# Alias for compatibility with test suites
+get_inference_transforms = get_inference_transform
 
 
 def load_image_from_bytes(image_bytes: bytes) -> Image.Image:
@@ -23,18 +42,38 @@ def load_image_from_bytes(image_bytes: bytes) -> Image.Image:
     if not image_bytes:
         raise ValueError("Empty image byte content provided.")
     try:
-        image = Image.open(io.BytesIO(image_bytes))
-        image.verify()  # Verify image integrity
-        # Re-open because verify leaves the image closed
-        image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-        return image
+        image = Image.open(BytesIO(image_bytes))
+        image.verify()
+        return Image.open(BytesIO(image_bytes)).convert("RGB")
     except Exception as e:
         raise ValueError(f"Invalid or corrupted image format: {str(e)}")
 
 
-def preprocess_image(image_bytes: bytes, image_size: Tuple[int, int] = (224, 224)) -> torch.Tensor:
-    """Loads, validates, and preprocesses raw image bytes into a model-ready batch tensor."""
-    image = load_image_from_bytes(image_bytes)
-    pipeline = get_inference_transforms(image_size=image_size)
-    tensor = pipeline(image)
-    return tensor.unsqueeze(0)  # Shape: (1, C, H, W)
+def preprocess_image(
+    image_bytes: bytes,
+    image_size: Optional[Tuple[int, int]] = None,
+) -> torch.Tensor:
+    """
+    Convert uploaded image bytes into a model-ready tensor.
+    """
+    if not image_bytes:
+        raise ValueError("Empty image byte content provided.")
+
+    try:
+        image = Image.open(
+            BytesIO(image_bytes)
+        ).convert("RGB")
+    except Exception as e:
+        raise ValueError(f"Invalid or corrupted image format: {str(e)}")
+
+    transform = get_inference_transform(image_size=image_size)
+
+    tensor = transform(image)
+
+    # Add batch dimension:
+    # [3, 224, 224]
+    #      ↓
+    # [1, 3, 224, 224]
+    tensor = tensor.unsqueeze(0)
+
+    return tensor

@@ -1,61 +1,64 @@
-import io
-from PIL import Image
-import pytest
+from pathlib import Path
 from fastapi.testclient import TestClient
+
 from app.main import app
+
 
 client = TestClient(app)
 
 
-def create_dummy_image_bytes(format="JPEG") -> io.BytesIO:
-    buf = io.BytesIO()
-    img = Image.new("RGB", (100, 100), color=(0, 255, 0))
-    img.save(buf, format=format)
-    buf.seek(0)
-    return buf
+def test_root():
 
-
-def test_root_endpoint():
     response = client.get("/")
+
     assert response.status_code == 200
+
     data = response.json()
-    assert "service" in data
-    assert "version" in data
+
+    assert data["service"] == "image-classification-api"
+    assert data["status"] == "running"
 
 
-def test_health_live_endpoint():
-    response = client.get("/health/live")
-    assert response.status_code == 200
-    assert response.json() == {"status": "alive"}
+def test_health():
 
-
-def test_health_ready_endpoint():
-    response = client.get("/health/ready")
-    assert response.status_code == 200
-    data = response.json()
-    assert data["status"] == "ready"
-
-
-def test_metrics_endpoint():
-    response = client.get("/metrics")
-    assert response.status_code == 200
-    assert "http_requests_total" in response.text
-
-
-def test_predict_endpoint_valid_image():
-    image_buf = create_dummy_image_bytes(format="JPEG")
-    files = {"file": ("test.jpg", image_buf, "image/jpeg")}
-    response = client.post("/predict?top_k=2", files=files)
+    response = client.get("/health")
 
     assert response.status_code == 200
-    data = response.json()
-    assert data["filename"] == "test.jpg"
-    assert "top_prediction" in data
-    assert "top_confidence" in data
-    assert len(data["predictions"]) <= 2
+
+    assert response.json()["status"] == "healthy"
 
 
-def test_predict_endpoint_invalid_file_type():
-    files = {"file": ("test.txt", io.BytesIO(b"dummy text"), "text/plain")}
-    response = client.post("/predict", files=files)
+def test_predict_with_invalid_file():
+
+    response = client.post(
+        "/predict",
+        files={
+            "file": (
+                "test.txt",
+                b"this is not an image",
+                "text/plain",
+            )
+        },
+    )
+
     assert response.status_code == 400
+
+
+def test_predict_with_real_image():
+    sample_cat = next(Path("data/raw/test/cat").glob("*.jpg"))
+    with open(sample_cat, "rb") as f:
+        img_bytes = f.read()
+
+    response = client.post(
+        "/predict",
+        files={"file": (sample_cat.name, img_bytes, "image/jpeg")},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert "prediction" in data
+    assert "confidence" in data
+    assert data["model_version"] == "1.0.0"
+    assert data["prediction"] in ["cat", "dog"]
+    assert 0.0 <= data["confidence"] <= 1.0
+
+

@@ -1,6 +1,6 @@
 import torch
 from training.train import create_model
-from app.inference.predictor import ImageClassifier
+from app.inference.predictor import ImagePredictor
 
 
 def test_model_output_shape():
@@ -24,30 +24,20 @@ def test_model_output_shape():
     assert output.shape == (2, 2)
 
 
-def test_classifier_initialization():
-    classifier = ImageClassifier(device="cpu")
-    assert classifier.model is not None
-    assert str(classifier.device) == "cpu"
+def test_predictor_initialization():
+    predictor = ImagePredictor()
+    assert predictor.model is not None
+    assert predictor.class_names == ["cat", "dog"]
 
 
-def test_classifier_predict_shape_and_keys():
-    classifier = ImageClassifier(device="cpu")
+def test_predictor_predict_shape_and_keys():
+    predictor = ImagePredictor()
     dummy_input = torch.randn(1, 3, 224, 224)
-    result = classifier.predict(dummy_input, top_k=3)
+    result = predictor.predict(dummy_input)
 
-    assert "top_prediction" in result
-    assert "top_confidence" in result
-    assert "predictions" in result
-    assert "latency_seconds" in result
-    assert len(result["predictions"]) <= 3
-    assert result["top_confidence"] >= 0.0
+    assert "prediction" in result
+    assert "confidence" in result
+    assert "model_version" in result
+    assert result["prediction"] in ["cat", "dog"]
+    assert 0.0 <= result["confidence"] <= 1.0
 
-
-def test_classifier_probabilities_sum():
-    classifier = ImageClassifier(device="cpu")
-    dummy_input = torch.randn(1, 3, 224, 224)
-    result = classifier.predict(dummy_input, top_k=5)
-
-    for item in result["predictions"]:
-        assert 0.0 <= item["confidence"] <= 1.0
-        assert isinstance(item["class_name"], str)
