@@ -1,0 +1,13 @@
+torch
+torchvision
+numpy
+pillow
+scikit-learn
+pyyaml
+mlflow
+fastapi
+uvicorn[standard]
+python-multipart
+prometheus-client
+pytest
+httpx

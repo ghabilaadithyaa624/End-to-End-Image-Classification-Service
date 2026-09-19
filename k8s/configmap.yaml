@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: image-classification-config
+  labels:
+    app: image-classification-service
+    tier: api
+data:
+  MODEL_PATH: "/app/models/model.pt"
+  LOG_LEVEL: "INFO"
+  METRICS_ENABLED: "true"
+  PORT: "8000"
