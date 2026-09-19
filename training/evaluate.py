@@ -68,7 +68,8 @@ def evaluate(model_path: str, config_path: str):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate Image Classification Model")
-    parser.add_argument("--model-path", type=str, default="models/model.pt", help="Path to saved model")
+    default_model = "models/image_classifier.pth" if os.path.exists("models/image_classifier.pth") else "models/model.pt"
+    parser.add_argument("--model-path", type=str, default=default_model, help="Path to saved model")
     parser.add_argument("--config", type=str, default="training/config.yaml", help="Path to config file")
     args = parser.parse_args()
 

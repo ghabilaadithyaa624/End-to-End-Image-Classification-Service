@@ -22,7 +22,8 @@ class ImageClassifier:
         self.device = torch.device(
             device if device else ("cuda" if torch.cuda.is_available() else "cpu")
         )
-        self.model_path = model_path or os.getenv("MODEL_PATH", "models/model.pt")
+        default_path = "models/image_classifier.pth" if os.path.exists("models/image_classifier.pth") else "models/model.pt"
+        self.model_path = model_path or os.getenv("MODEL_PATH", default_path)
         self.classes: List[str] = DEFAULT_CLASSES
         self.model = self._load_model()
 

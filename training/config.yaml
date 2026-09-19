@@ -9,7 +9,7 @@ model:
   pretrained: true
   num_classes: 2
   classes: ["cat", "dog"]
-  save_path: "models/model.pt"
+  save_path: "models/image_classifier.pth"
 
 data:
   data_dir: "data/raw"
@@ -34,8 +34,8 @@ hyperparameters:
   scheduler: "cosine"
 
 output:
-  model_path: "models/model.pt"
-  checkpoint_path: "models/checkpoint.pt"
+  model_path: "models/image_classifier.pth"
+  checkpoint_path: "models/best_checkpoint.pth"
 
 mlflow:
   tracking_uri: "./mlruns"
