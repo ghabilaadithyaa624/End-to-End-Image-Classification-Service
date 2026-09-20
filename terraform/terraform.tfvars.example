@@ -1,0 +1,4 @@
+aws_region         = "ap-south-1"
+project_name       = "image-classification-mlops"
+environment        = "dev"
+kubernetes_version = "1.33"
