@@ -8,6 +8,7 @@ locals {
   }
 }
 
+# --- VPC Module ---
 module "vpc" {
   source  = "terraform-aws-modules/vpc/aws"
   version = "~> 6.0"
@@ -42,6 +43,7 @@ module "vpc" {
   tags = local.common_tags
 }
 
+# --- EKS Cluster Module ---
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
   version = "~> 21.0"
@@ -72,4 +74,110 @@ module "eks" {
   }
 
   tags = local.common_tags
+}
+
+# --- Amazon ECR for Docker Image Registry ---
+resource "aws_ecr_repository" "app" {
+  name                 = var.project_name
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = local.common_tags
+}
+
+resource "aws_ecr_lifecycle_policy" "app" {
+  repository = aws_ecr_repository.app.name
+
+  policy = jsonencode({
+    rules = [
+      {
+        rulePriority = 1
+        description  = "Keep last 10 images to prevent unnecessary storage costs"
+        selection = {
+          tagStatus   = "any"
+          countType   = "imageCountMoreThan"
+          countNumber = 10
+        }
+        action = {
+          type = "expire"
+        }
+      }
+    ]
+  })
+}
+
+# --- Amazon S3 Bucket for MLflow Model Artifacts ---
+resource "random_string" "suffix" {
+  length  = 8
+  special = false
+  upper   = false
+}
+
+resource "aws_s3_bucket" "mlflow_artifacts" {
+  bucket = "${local.name}-mlflow-${random_string.suffix.result}"
+
+  tags = local.common_tags
+}
+
+resource "aws_s3_bucket_public_access_block" "mlflow_artifacts" {
+  bucket = aws_s3_bucket.mlflow_artifacts.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_versioning" "mlflow_artifacts" {
+  bucket = aws_s3_bucket.mlflow_artifacts.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "mlflow_artifacts" {
+  bucket = aws_s3_bucket.mlflow_artifacts.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+# --- AWS Budgets Guardrail for Promotional Credits ---
+resource "aws_budgets_budget" "cost_budget" {
+  name              = "${local.name}-budget"
+  budget_type       = "COST"
+  limit_amount      = var.budget_limit_amount
+  limit_unit        = "USD"
+  time_unit         = "MONTHLY"
+  time_period_start = "2026-09-01_00:00"
+
+  notification {
+    comparison_operator        = "GREATER_THAN"
+    threshold                  = 50
+    threshold_type             = "PERCENTAGE"
+    notification_type          = "ACTUAL"
+    subscriber_email_addresses = [var.alert_email]
+  }
+
+  notification {
+    comparison_operator        = "GREATER_THAN"
+    threshold                  = 80
+    threshold_type             = "PERCENTAGE"
+    notification_type          = "ACTUAL"
+    subscriber_email_addresses = [var.alert_email]
+  }
+
+  notification {
+    comparison_operator        = "GREATER_THAN"
+    threshold                  = 100
+    threshold_type             = "PERCENTAGE"
+    notification_type          = "FORECASTED"
+    subscriber_email_addresses = [var.alert_email]
+  }
 }
