@@ -329,12 +329,12 @@ def main():
 
         # Register model in MLflow Model Registry
         print("Registering model in MLflow Model Registry...")
-        input_example = torch.randn(1, 3, 224, 224, device=device)
+        model_cpu = model.to("cpu")
         mlflow.pytorch.log_model(
-            model,
+            model_cpu,
             name="model",
             registered_model_name="image-classifier",
-            input_example=input_example.cpu().numpy(),
+            serialization_format="pickle",
         )
 
 

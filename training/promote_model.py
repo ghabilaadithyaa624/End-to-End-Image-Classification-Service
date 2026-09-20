@@ -1,7 +1,7 @@
 import mlflow
 
 MODEL_NAME = "image-classifier"
-MODEL_VERSION = 1
+MODEL_VERSION = 2
 
 # Connect to local MLflow tracking server
 mlflow.set_tracking_uri("http://127.0.0.1:5000")
