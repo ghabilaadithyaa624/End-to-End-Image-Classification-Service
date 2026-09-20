@@ -12,3 +12,4 @@ prometheus-client
 pytest
 httpx
 boto3
+gradio
