@@ -7,6 +7,7 @@
 *.tfstate
 *.tfstate.*
 *.tfplan
+tfplan
 
 # Variables
 *.tfvars

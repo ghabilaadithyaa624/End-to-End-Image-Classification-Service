@@ -22,3 +22,8 @@ output "s3_bucket_name" {
   description = "Amazon S3 Bucket Name for MLflow Model Artifacts"
   value       = aws_s3_bucket.mlflow_artifacts.id
 }
+
+output "mlflow_artifacts_bucket" {
+  description = "MLflow artifact bucket alias"
+  value       = aws_s3_bucket.mlflow_artifacts.bucket
+}

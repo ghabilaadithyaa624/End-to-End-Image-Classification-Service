@@ -62,8 +62,8 @@ module "eks" {
   subnet_ids = module.vpc.private_subnets
 
   eks_managed_node_groups = {
-    default = {
-      instance_types = ["t3.medium"]
+    worker = {
+      instance_types = ["t3.small"]
 
       min_size     = 1
       max_size     = 2
@@ -144,6 +144,19 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "mlflow_artifacts"
   rule {
     apply_server_side_encryption_by_default {
       sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "mlflow_artifacts" {
+  bucket = aws_s3_bucket.mlflow_artifacts.id
+
+  rule {
+    id     = "cleanup-old-noncurrent-versions"
+    status = "Enabled"
+
+    noncurrent_version_expiration {
+      noncurrent_days = 30
     }
   }
 }
