@@ -1,0 +1,10 @@
+{
+  "run": [
+    {
+      "method": "fs.rm",
+      "params": {
+        "path": "env"
+      }
+    }
+  ]
+}

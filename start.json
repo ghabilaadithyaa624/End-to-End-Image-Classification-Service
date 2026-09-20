@@ -1,0 +1,33 @@
+{
+  "daemon": true,
+  "run": [
+    {
+      "method": "shell.run",
+      "params": {
+        "venv": "env",
+        "env": {
+          "PYTHONUNBUFFERED": "1"
+        },
+        "message": [
+          "python app.py"
+        ],
+        "on": [
+          {
+            "event": "/http:\\/\\/127\\.0\\.0\\.1:7860[0-9]*/",
+            "done": true
+          },
+          {
+            "event": "/http:\\/\\/localhost:7860[0-9]*/",
+            "done": true
+          }
+        ]
+      }
+    },
+    {
+      "method": "local.set",
+      "params": {
+        "url": "{{input.event[0]}}"
+      }
+    }
+  ]
+}

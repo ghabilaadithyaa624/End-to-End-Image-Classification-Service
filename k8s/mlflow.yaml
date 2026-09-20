@@ -1,0 +1,102 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: mlflow
+  namespace: mlops
+spec:
+  selector:
+    app: mlflow
+  ports:
+    - port: 5000
+      targetPort: 5000
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mlflow-sqlite-pvc
+  namespace: mlops
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+  storageClassName: gp3
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlflow
+  namespace: mlops
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: mlflow
+  template:
+    metadata:
+      labels:
+        app: mlflow
+    spec:
+      serviceAccountName: mlflow
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: mlflow
+          image: 929514687018.dkr.ecr.ap-south-1.amazonaws.com/image-classification-mlops:mlflow
+          command: ["mlflow", "server"]
+          args:
+            - "--host"
+            - "0.0.0.0"
+            - "--port"
+            - "5000"
+            - "--workers"
+            - "1"
+            - "--allowed-hosts"
+            - "*"
+            - "--cors-allowed-origins"
+            - "*"
+            - "--backend-store-uri"
+            - "sqlite:////var/lib/mlflow/mlflow.db"
+            - "--default-artifact-root"
+            - "s3://image-classification-mlops-dev-mlflow-djntbnf0/mlflow"
+          ports:
+            - containerPort: 5000
+          env:
+            - name: AWS_DEFAULT_REGION
+              value: ap-south-1
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 900Mi
+          volumeMounts:
+            - name: sqlite-data
+              mountPath: /var/lib/mlflow
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 90
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 4
+      volumes:
+        - name: sqlite-data
+          persistentVolumeClaim:
+            claimName: mlflow-sqlite-pvc

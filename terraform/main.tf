@@ -65,6 +65,10 @@ module "eks" {
     worker = {
       instance_types = ["t3.small"]
 
+      # Pin to ap-south-1a only — EBS PVCs are AZ-specific; keeping nodes in
+      # one AZ prevents PVC attachment failures on node replacement.
+      subnet_ids = [module.vpc.private_subnets[0]]
+
       min_size     = 1
       max_size     = 2
       desired_size = 1
