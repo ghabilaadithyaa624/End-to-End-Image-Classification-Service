@@ -51,9 +51,15 @@ except Exception as exc:
     model_load_error = str(exc)
 
 
-def classify_image(image: Optional[Image.Image]) -> Tuple[Dict[str, float], str, str]:
+def classify_image(
+    image: Optional[Image.Image],
+    threshold: float = 70.0,
+) -> Tuple[Dict[str, float], str, str]:
     """
     Classify an uploaded image as Cat or Dog.
+    Applies an uncertainty threshold: if top class confidence is below
+    the threshold, flags the image as potentially not a cat or dog.
+
     Returns:
         - Dict of class names to probabilities (for gr.Label)
         - Formatted Markdown summary
@@ -107,15 +113,34 @@ def classify_image(image: Optional[Image.Image]) -> Tuple[Dict[str, float], str,
         conf_percent = float(confidence.item()) * 100
         icon = "🐱" if top_class.lower() == "cat" else "🐶"
 
-        summary_md = f"""
-### {icon} Prediction: **{top_class}**
-- **Confidence Score:** `{conf_percent:.2f}%`
+        is_uncertain = conf_percent < float(threshold)
+
+        if is_uncertain:
+            summary_md = f"""
+### ⚠️ Prediction: **Uncertain** (Top guess: {top_class} at `{conf_percent:.1f}%`)
+
+> 🔍 **Out-of-Domain / Non-Cat-Dog Warning:**
+> The model confidence (`{conf_percent:.1f}%`) is lower than the **{threshold:.0f}%** certainty threshold. 
+> This image may **not be a cat or dog**, or the subject may be obstructed or ambiguous.
+
+- **Top Candidate:** {icon} `{top_class}` (`{conf_percent:.2f}%`)
+- **Certainty Threshold:** `{threshold:.0f}%`
+- **Inference Latency:** `{latency_ms:.1f} ms`
+- **Model Version:** `{predictor.model_version}`
+- **Device:** `{predictor.device}`
+"""
+            status_text = f"⚠️ Uncertain ({conf_percent:.1f}% < {threshold:.0f}% threshold): May not be a cat or dog"
+        else:
+            summary_md = f"""
+### {icon} Prediction: **{top_class}** (Confident)
+- **Confidence Score:** `{conf_percent:.2f}%` (Meets `{threshold:.0f}%` threshold)
 - **Inference Latency:** `{latency_ms:.1f} ms`
 - **Model Version:** `{predictor.model_version}`
 - **Device:** `{predictor.device}`
 - **Model Source:** `{predictor.source}`
 """
-        status_text = f"Classified as {top_class} ({conf_percent:.1f}%) in {latency_ms:.1f}ms"
+            status_text = f"✅ Confident: Classified as {top_class} ({conf_percent:.1f}%) in {latency_ms:.1f}ms"
+
         return class_probs, summary_md, status_text
 
     except Exception as exc:
@@ -156,9 +181,9 @@ sample_examples: List[List[Any]] = []
 cat_sample = PROJECT_ROOT / "data" / "raw" / "test" / "cat" / "cat_00000.jpg"
 dog_sample = PROJECT_ROOT / "data" / "raw" / "test" / "dog" / "dog_00000.jpg"
 if cat_sample.exists():
-    sample_examples.append([str(cat_sample)])
+    sample_examples.append([str(cat_sample), 70])
 if dog_sample.exists():
-    sample_examples.append([str(dog_sample)])
+    sample_examples.append([str(dog_sample), 70])
 
 
 # Build Gradio UI
@@ -172,7 +197,7 @@ with gr.Blocks() as demo:
         """
 # 🐾 End-to-End Image Classification Service
 ### Production MLOps Serving Interface • ResNet18 • PyTorch • Pinokio Ready
-Classify images of cats and dogs with real-time confidence scores, latency telemetry, and model provenance.
+Classify images of cats and dogs with real-time confidence scores, latency telemetry, and uncertainty detection.
         """
     )
 
@@ -184,6 +209,14 @@ Classify images of cats and dogs with real-time confidence scores, latency telem
                         type="pil",
                         label="Upload Image (Cat or Dog)",
                         sources=["upload", "clipboard", "webcam"],
+                    )
+                    threshold_slider = gr.Slider(
+                        minimum=50,
+                        maximum=95,
+                        value=70,
+                        step=5,
+                        label="🎯 Certainty Threshold (%)",
+                        info="Predictions below this score will trigger an 'Uncertain / Not Cat or Dog' alert.",
                     )
                     with gr.Row():
                         submit_btn = gr.Button("⚡ Run Classification", variant="primary", scale=2)
@@ -204,7 +237,7 @@ Classify images of cats and dogs with real-time confidence scores, latency telem
             if sample_examples:
                 gr.Examples(
                     examples=sample_examples,
-                    inputs=[input_image],
+                    inputs=[input_image, threshold_slider],
                     outputs=[label_output, summary_output, status_output],
                     fn=classify_image,
                     cache_examples=False,
@@ -213,12 +246,17 @@ Classify images of cats and dogs with real-time confidence scores, latency telem
 
             submit_btn.click(
                 fn=classify_image,
-                inputs=[input_image],
+                inputs=[input_image, threshold_slider],
                 outputs=[label_output, summary_output, status_output],
             )
             input_image.change(
                 fn=classify_image,
-                inputs=[input_image],
+                inputs=[input_image, threshold_slider],
+                outputs=[label_output, summary_output, status_output],
+            )
+            threshold_slider.change(
+                fn=classify_image,
+                inputs=[input_image, threshold_slider],
                 outputs=[label_output, summary_output, status_output],
             )
             clear_btn.add([input_image, label_output, summary_output, status_output])
