@@ -56,6 +56,8 @@ htmlcov/
 crash.log
 crash.*.log
 *.tfvars
+!terraform/terraform.tfvars
 *.tfvars.json
 .terraform/
 .terraform.lock.hcl
+
